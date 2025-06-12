@@ -15,10 +15,16 @@ from projectaria_tools.core.calibration import (
 )
 from projectaria_tools.core.sensor_data import ImageDataRecord
 
+# Camera constants
 ARIA_ROI_LOWER_BOUND = 95
 ARIA_ROI_UPPER_BOUND = 417
 
+# Servo constants
+INIT_ANGLE = 90
+
 class CameraHandler:
+    """Class to handle Aria glasses video feed"""
+
     def __init__(self, streaming_interface, update_iptables, profile_name, device_ip):
         self.setup(streaming_interface, update_iptables, profile_name, device_ip)
     
@@ -102,6 +108,74 @@ class CameraHandler:
 
         return rgb_processed, undistorted_processed[ARIA_ROI_LOWER_BOUND:ARIA_ROI_UPPER_BOUND, ARIA_ROI_LOWER_BOUND:ARIA_ROI_UPPER_BOUND]
 
+class ServoController:
+    """
+    Class for Arduino communication to read/write servo angles.
+    Initializes connection by sending "MARCO" to Arduino, expects "POLO" in response.
+    - Movement commands take the form "MOVE:[angle]" and receives response "MOVED:[angle]"
+    - Status request takes the form "STATUS" and receives response "STATUS:[angle]"
+    """
+    def __init__(self, arduino_port='/dev/cu.usbmodem1101', baud_rate=11520):
+        # TODO: set up serial read/write timeout once proof of concept is working
+
+        # Connect to Arduino
+        self.arduino = serial.Serial(arduino_port, baud_rate)
+        print("Connecting to Arduino...")
+        time.sleep(2) # Wait 2 seconds to allow time for connection
+        if self.confirm_connection():
+            print(f"Connected to port {arduino_port} at {baud_rate} baud")
+        else:
+            print(f"Connection failed.")
+            self.arduino.close()
+        self.current_angle = self.move_servo(INIT_ANGLE)
+    
+    def confirm_connection(self):
+        """Confirms connection with Arduino through Marco Polo message. Returns connection status as boolean"""
+        # Instruction
+        self.arduino.write(b"MARCO\n")
+        # Response
+        response = self.arduino.readline().decode().strip()
+        return response == "POLO"
+    
+    def move_servo(self, angle):
+        """
+        Instructs Arduino to move servo to the given input angle.
+        Returns the angle the Arduino received and sets self.current_angle if it is equal to the transmitted angle.
+        Otherwise, returns -1
+        """
+        # TODO: Make sure angle is within servo bounds
+        # Send MOVE instruction to Arduino
+        command = f"MOVE:{int(angle)}\n"
+        print(f"Moving servo to {angle}")
+        self.arduino.write(command.encode())
+
+        # Parses resulting angle from Arduino response as an int
+        response = self.arduino.readline().decode().strip()
+        response_angle = int(response[6:])
+        print(f"Response: {response_angle}")
+
+        # Check that angles match
+        if response_angle == angle:
+            self.current_angle = angle
+            return response_angle
+        return -1
+
+    def get_status(self):
+        """Requests servo position from Arduino. If the response angle is an int within the servo bounds, return the angle. Otherwise, return -1"""
+        # Send STATUS request to Arduino
+        self.arduino.write(b"STATUS\n")
+        print("Requesting servo status")
+
+        # Parse resulting angle from Arduino
+        response = self.arduino.readline().decode().strip()
+        response_angle = response[7:]
+        print(f"Status: {response_angle}")
+
+        # TODO: Validate bounds of angle
+        if response_angle.isdigit():
+            return int(response_angle)
+        return -1
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -132,32 +206,41 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 def main():
-    args = parse_args()
+    controller = ServoController(arduino_port="/dev/cu.usbmodem11101")
+    while True:
+        command = input("Command: ")
+        instruction = command.split(' ')
+        if instruction[0].lower() == "move" and len(instruction) > 1:
+            controller.move_servo(instruction[1])
+        elif instruction[0].lower() == "status":
+            controller.get_status()
+
+    # args = parse_args()
     
-    camera_handler = CameraHandler(args.streaming_interface, args.update_iptables, args.profile_name, args.device_ip)
+    # camera_handler = CameraHandler(args.streaming_interface, args.update_iptables, args.profile_name, args.device_ip)
 
-    rgb_window = "Aria RGB"
-    undistorted_window = "Undistorted RGB"
+    # rgb_window = "Aria RGB"
+    # undistorted_window = "Undistorted RGB"
 
-    cv2.namedWindow(rgb_window, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(rgb_window, 512, 512)
-    cv2.setWindowProperty(rgb_window, cv2.WND_PROP_TOPMOST, 1)
-    cv2.moveWindow(rgb_window, 50, 50)
+    # cv2.namedWindow(rgb_window, cv2.WINDOW_NORMAL)
+    # cv2.resizeWindow(rgb_window, 512, 512)
+    # cv2.setWindowProperty(rgb_window, cv2.WND_PROP_TOPMOST, 1)
+    # cv2.moveWindow(rgb_window, 50, 50)
 
-    cv2.namedWindow(undistorted_window, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(undistorted_window, 512, 512)
-    cv2.setWindowProperty(undistorted_window, cv2.WND_PROP_TOPMOST, 1)
-    cv2.moveWindow(undistorted_window, 600, 50)
+    # cv2.namedWindow(undistorted_window, cv2.WINDOW_NORMAL)
+    # cv2.resizeWindow(undistorted_window, 512, 512)
+    # cv2.setWindowProperty(undistorted_window, cv2.WND_PROP_TOPMOST, 1)
+    # cv2.moveWindow(undistorted_window, 600, 50)
 
-    with ctrl_c_handler() as ctrl_c:
-        while not (quit_keypress() or ctrl_c):
-            orig, undistorted = camera_handler.get_processed_frames()
-            if orig is not None and undistorted is not None:
-                cv2.imshow(rgb_window, orig)
-                cv2.imshow(undistorted_window, undistorted)
+    # with ctrl_c_handler() as ctrl_c:
+    #     while not (quit_keypress() or ctrl_c):
+    #         orig, undistorted = camera_handler.get_processed_frames()
+    #         if orig is not None and undistorted is not None:
+    #             cv2.imshow(rgb_window, orig)
+    #             cv2.imshow(undistorted_window, undistorted)
 
-    # 10. Unsubscribe from data and stop streaming
-    camera_handler.terminate()
+    # # 10. Unsubscribe from data and stop streaming
+    # camera_handler.terminate()
 
 if __name__ == "__main__":
     main()
