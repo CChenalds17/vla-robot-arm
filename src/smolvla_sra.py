@@ -115,7 +115,7 @@ class ServoController:
     - Movement commands take the form "MOVE:[angle]" and receives response "MOVED:[angle]"
     - Status request takes the form "STATUS" and receives response "STATUS:[angle]"
     """
-    def __init__(self, arduino_port='/dev/cu.usbmodem1101', baud_rate=11520):
+    def __init__(self, arduino_port, baud_rate):
         # TODO: set up serial read/write timeout once proof of concept is working
 
         # Connect to Arduino
@@ -179,6 +179,19 @@ class ServoController:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--arduino_port",
+        type=str,
+        default="/dev/cu.usbmodem11101",
+        help="Programming port of connected Arduino to allow Serial communication"
+    )
+    parser.add_argument(
+        "--baud",
+        dest="baud_rate",
+        type=int,
+        default=11520,
+        help="Baud rate of Serial communication with Arduino. This needs to match the baud rate in the Arduino code.",
+    )
+    parser.add_argument(
         "--interface",
         dest="streaming_interface",
         type=str,
@@ -206,7 +219,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 def main():
-    controller = ServoController(arduino_port="/dev/cu.usbmodem11101")
+    args = parse_args()
+
+
+    ### Arduino test ###
+    controller = ServoController(arduino_port=args.arduino_port, baud_rate=args.baud_rate)
     while True:
         command = input("Command: ")
         instruction = command.split(' ')
@@ -215,6 +232,7 @@ def main():
         elif instruction[0].lower() == "status":
             controller.get_status()
 
+    ### Glasses test ###
     # args = parse_args()
     
     # camera_handler = CameraHandler(args.streaming_interface, args.update_iptables, args.profile_name, args.device_ip)
