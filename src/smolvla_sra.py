@@ -189,7 +189,7 @@ def parse_args() -> argparse.Namespace:
         dest="baud_rate",
         type=int,
         default=11520,
-        help="Baud rate of Serial communication with Arduino. This needs to match the baud rate in the Arduino code.",
+        help="Baud rate for Serial communication with Arduino. This needs to match the baud rate in the Arduino code.",
     )
     parser.add_argument(
         "--interface",
