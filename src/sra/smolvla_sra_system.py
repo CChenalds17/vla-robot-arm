@@ -7,8 +7,8 @@ import torch
 import cv2
 from PIL import Image
 
-from lerobot.lerobot.common.policies.smolvla.modeling_smolvla import SmolVLAPolicy
-from lerobot.lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.common.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
 # Servo constants
 INIT_ANGLE = 0
