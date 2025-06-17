@@ -1,6 +1,2 @@
 __pycache__/
 .DS_Store
-
-test.ipynb
-default_config.json
-vla_test.py
