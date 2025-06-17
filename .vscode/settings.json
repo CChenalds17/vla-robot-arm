@@ -1,0 +1,6 @@
+{
+  // for Pylance:
+  "python.analysis.extraPaths": ["./src"],
+  // for Jedi & autocomplete:
+  "python.autoComplete.extraPaths": ["./src"]
+}
