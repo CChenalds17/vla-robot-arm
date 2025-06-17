@@ -4,10 +4,12 @@ import cv2
 import numpy as np
 import serial
 import time
-from collections import deque
+import torch
+import numpy as np
+from PIL import Image
 
 import aria.sdk as aria
-from common import ctrl_c_handler, quit_keypress, update_iptables
+from common import ctrl_c_handler, quit_keypress
 from projectaria_tools.core.calibration import (
     device_calibration_from_json_string,
     distort_by_calibration,
@@ -15,12 +17,15 @@ from projectaria_tools.core.calibration import (
 )
 from projectaria_tools.core.sensor_data import ImageDataRecord
 
+from lerobot.common.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+
 # Camera constants
 ARIA_ROI_LOWER_BOUND = 95
 ARIA_ROI_UPPER_BOUND = 417
 
 # Servo constants
-INIT_ANGLE = 90
+INIT_ANGLE = 0
 
 class CameraHandler:
     """Class to handle Aria glasses video feed"""
@@ -86,27 +91,28 @@ class CameraHandler:
         self.streaming_client.subscribe()
     
     def terminate(self):
+        """Unsubscribe from data and stop streaming"""
         print("Stop listening to Aria image data")
         self.streaming_client.unsubscribe()
         self.streaming_manager.stop_streaming()
         self.device_client.disconnect(self.device)
     
-    def get_processed_frames(self):
-        """Get processed frames for display windows and SmolVLA input. Returns (rgb_processed_image, undistorted_processed_image)."""
+    def get_processed_frame(self):
+        """Get processed frame for display windows and SmolVLA input. Returns undistorted_processed_image"""
         if self.observer.rgb_image is None:
-            return None, None
+            return None
         
         # Convert color space
         rgb_image = cv2.cvtColor(self.observer.rgb_image, cv2.COLOR_BGR2RGB)
         # Apply undistortion correction
         undistorted_rgb_image = distort_by_calibration(rgb_image, self.dst_calib, self.rgb_calib)
         # Rotate image
-        rgb_processed = np.rot90(rgb_image, -1)
-        undistorted_processed = np.rot90(undistorted_rgb_image, -1)
+        undistorted_display = np.rot90(undistorted_rgb_image, -1)
+        undistorted_display = undistorted_display[ARIA_ROI_LOWER_BOUND:ARIA_ROI_UPPER_BOUND, ARIA_ROI_LOWER_BOUND:ARIA_ROI_UPPER_BOUND]
 
         self.observer.rgb_image = None
 
-        return rgb_processed, undistorted_processed[ARIA_ROI_LOWER_BOUND:ARIA_ROI_UPPER_BOUND, ARIA_ROI_LOWER_BOUND:ARIA_ROI_UPPER_BOUND]
+        return undistorted_display
 
 class ServoController:
     """
@@ -114,9 +120,11 @@ class ServoController:
     Initializes connection by sending "MARCO" to Arduino, expects "POLO" in response.
     - Movement commands take the form "MOVE:[angle]" and receives response "MOVED:[angle]"
     - Status request takes the form "STATUS" and receives response "STATUS:[angle]"
+    - Sees angle range [0, +180]
     """
-    def __init__(self, arduino_port, baud_rate):
+    def __init__(self, arduino_port, baud_rate, init_angle):
         # TODO: set up serial read/write timeout once proof of concept is working
+            # 1, 2, 4, 8, 16 seconds (5 tries)
 
         # Connect to Arduino
         self.arduino = serial.Serial(arduino_port, baud_rate)
@@ -124,11 +132,11 @@ class ServoController:
         time.sleep(2) # Wait 2 seconds to allow time for connection
         if self.confirm_connection():
             print(f"Connected to port {arduino_port} at {baud_rate} baud")
+            self.move_servo(init_angle)
         else:
             print(f"Connection failed.")
-            self.arduino.close()
-        self.current_angle = self.move_servo(INIT_ANGLE)
-    
+            self.disconnect()
+        
     def confirm_connection(self):
         """Confirms connection with Arduino through Marco Polo message. Returns connection status as boolean"""
         # Instruction
@@ -141,40 +149,182 @@ class ServoController:
         """
         Instructs Arduino to move servo to the given input angle.
         Returns the angle the Arduino received and sets self.current_angle if it is equal to the transmitted angle.
-        Otherwise, returns -1
+        Otherwise, returns -1 and closes the connection
         """
-        # TODO: Make sure angle is within servo bounds
+        # Validate angle is within servo bounds
+        angle = round(angle)
+        if angle < 0 or angle > 180:
+            print("Error: Angle is not in the valid range")
+            self.disconnect()
+            return -1
+        
         # Send MOVE instruction to Arduino
-        command = f"MOVE:{int(angle)}\n"
+        command = f"MOVE:{angle}\n"
         print(f"Moving servo to {angle}")
         self.arduino.write(command.encode())
 
-        # Parses resulting angle from Arduino response as an int
+        # Parses resulting angle from Arduino response as a float
         response = self.arduino.readline().decode().strip()
-        response_angle = int(response[6:])
-        print(f"Response: {response_angle}")
+        try:
+            response_angle = int(response[6:]) # After "MOVED:"
+            print(f"Response: {response_angle}")
+            if response_angle == angle:
+                return response_angle
+            else:
+                print("Error: Response angle does not match")
+        except ValueError:
+            print("Error: Arduino response is not a valid integer")
 
-        # Check that angles match
-        if response_angle == angle:
-            self.current_angle = angle
-            return response_angle
+        self.disconnect()
         return -1
 
     def get_status(self):
-        """Requests servo position from Arduino. If the response angle is an int within the servo bounds, return the angle. Otherwise, return -1"""
+        """Requests servo position from Arduino. If the response angle is an int within the servo bounds, return the angle as a float. Otherwise, return -1"""
         # Send STATUS request to Arduino
         self.arduino.write(b"STATUS\n")
         print("Requesting servo status")
 
         # Parse resulting angle from Arduino
         response = self.arduino.readline().decode().strip()
-        response_angle = response[7:]
-        print(f"Status: {response_angle}")
+        try:
+            response_angle = int(response[7:]) # After "STATUS:"
+            print(f"Status: {response_angle}")
+            if 0 <= response_angle and response_angle <= 180:
+                return response_angle
+            else:
+                print("Error: Angle is not in the valid range")
+        except ValueError:
+            print("Error: Arduino response is a not a valid integer")
 
-        # TODO: Validate bounds of angle
-        if response_angle.isdigit():
-            return int(response_angle)
+        self.disconnect()
         return -1
+    
+    def disconnect(self):
+        print("Disconnecting from Arduino")
+        self.arduino.close()
+
+class SmolVLASRASystem:
+    """
+    System integrating Aria glasses, SmolVLA, and Arduino. Treats angle range as [-180, +180] and **converts every angle before transmission with Arduino**.
+    """
+    def __init__(self, arduino_port, baud_rate, streaming_interface, update_iptables, profile_name, device_ip, \
+                 datasest_path="danaaubakirova/svla_so100_task4_v3_clean", model_path="lerobot/smolvla_base", device="mps"):
+        # Initialize components (parameters supplied by command-line arguments)
+
+        self.device = device
+        self.dataset = LeRobotDataset(datasest_path)
+        self.policy = SmolVLAPolicy.from_pretrained(model_path)
+        self.setup_pol_state_dict()
+
+        self.servo_controller = ServoController(arduino_port, baud_rate, init_angle=SmolVLASRASystem.convert_angle_to_arduino(INIT_ANGLE))
+        self.camera_handler = CameraHandler(streaming_interface, update_iptables, profile_name, device_ip)
+
+        # Display windows
+        self.undistorted_window = "Undistorted Feed"
+    
+    def setup_pol_state_dict(self):
+        """Set up policy state dictionary with dataset's mean and std"""
+        pol_state_dict = self.policy.state_dict()
+
+        pol_state_dict['normalize_inputs.buffer_observation_state.mean'] = torch.from_numpy(
+            self.dataset.meta.stats['observation.state']['mean'])
+        pol_state_dict['normalize_inputs.buffer_observation_state.std'] = torch.from_numpy(
+            self.dataset.meta.stats['observation.state']['std'])
+        pol_state_dict['normalize_targets.buffer_action.mean'] = torch.from_numpy(self.dataset.meta.stats['action']['mean'])
+        pol_state_dict['normalize_targets.buffer_action.std'] = torch.from_numpy(self.dataset.meta.stats['action']['std'])
+        pol_state_dict['unnormalize_outputs.buffer_action.mean'] = torch.from_numpy(self.dataset.meta.stats['action']['mean'])
+        pol_state_dict['unnormalize_outputs.buffer_action.std'] = torch.from_numpy(self.dataset.meta.stats['action']['std'])
+
+        self.policy.load_state_dict(pol_state_dict)
+
+    def run_control_loop(self):
+        """Control loop to operate SRA"""
+        # TODO: Implement multithreading for task retrieval, etc
+            # I think I will need a task listener or something
+
+        cv2.namedWindow(self.undistorted_window, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(self.undistorted_window, 512, 512)
+        cv2.setWindowProperty(self.undistorted_window, cv2.WND_PROP_TOPMOST, 1)
+        cv2.moveWindow(self.undistorted_window, 1200, 50)
+
+        with ctrl_c_handler() as ctrl_c:
+            while not (quit_keypress() or ctrl_c):
+                undistorted_display = self.camera_handler.get_processed_frame()
+
+                key = cv2.waitKey(1)
+                if undistorted_display is not None:
+                    cv2.imshow(self.undistorted_window, undistorted_display)
+
+                    # (For now) Upon pressing SPACE, generate prediction and send it to Arduino
+                    if key == ord(' '):
+                        observation = self.get_observation(undistorted_display)
+                        action = self.policy.select_action(observation)
+
+                        print(f"VLA Action: {action}")
+                        servo_angle = SmolVLASRASystem.action_to_angle(action)
+                        self.servo_controller.move_servo(SmolVLASRASystem.convert_angle_to_arduino(servo_angle))
+        
+        self.camera_handler.terminate()
+
+    def get_observation(self, undistorted_display):
+        obs = SmolVLASRASystem.convert_angle_to_vla(self.servo_controller.get_status()) # Gets servo angle from Arduino and converts it
+        observation_state = SmolVLASRASystem.obs_to_smolvla_state(obs).to(self.device)
+        observation_image_top = SmolVLASRASystem.img_to_smolvla_tensor(undistorted_display).to(self.device)
+        task = self.get_task()
+
+        observation = {
+            "observation.state": observation_state,
+            "observation.image": observation_image_top,
+            "task": [task]
+        }
+
+        print('---------------------------------------------------------')
+        print(f"Observation State: {observation_state}")
+        SmolVLASRASystem.tensor_to_pil(observation_image_top).show()
+        print(f"Observation Image Top: {observation_image_top}")
+        print(f"Observation Image Top Shape: {observation_image_top.shape}")
+        print(f"Task: {task}")
+        print('---------------------------------------------------------')
+
+        return observation
+
+    def get_task(self):
+        return "Move left"
+        
+    @staticmethod
+    def img_to_smolvla_tensor(img):
+        """Returns undistorted_tensor: a Tensor of shape [1, 3, 322, 322] processed for SmolVLA input"""
+        undistorted_tensor = torch.tensor(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), dtype=torch.float32) # Convert to RGB Tensor
+        undistorted_tensor = undistorted_tensor.permute(2, 0, 1).unsqueeze(0) # Process dimensions
+        undistorted_tensor = undistorted_tensor / 255.0 # Normalize to [0, 1]
+
+        return undistorted_tensor
+
+    @staticmethod
+    def obs_to_smolvla_state(obs):
+        """Converts observation to observation Tensor 0-padded for SmolVLA input"""
+        return torch.tensor([obs, 0, 0, 0, 0, 0]).unsqueeze(0)
+    
+    @staticmethod
+    def action_to_angle(action):
+        """Converts SmolVLA output action to 1-DoF servo angle (rounded)"""
+        return round(action.squeeze(0).tolist()[0])
+
+    @staticmethod
+    def convert_angle_to_arduino(vla_angle: int) -> int:
+        """Maps angle from [-180, +180] to [0, +180]"""
+        return int((vla_angle + 180) / 2.0)
+
+    @staticmethod
+    def convert_angle_to_vla(arduino_angle: int) -> int:
+        """Maps angle from [0, +180] to [-180, +180]"""
+        return int(2.0 * arduino_angle - 180)
+
+    @staticmethod
+    def tensor_to_pil(t: torch.Tensor, mode="RGB") -> Image.Image:
+        t = t.cpu().detach().squeeze(0)
+        arr = (t * 255).clamp(0,255).byte().permute(1, 2, 0).numpy()
+        return Image.fromarray(arr, mode=mode)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -221,44 +371,12 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
 
+    # TODO: Dynamically select device (mps/cuda/cpu)
 
-    ### Arduino test ###
-    controller = ServoController(arduino_port=args.arduino_port, baud_rate=args.baud_rate)
-    while True:
-        command = input("Command: ")
-        instruction = command.split(' ')
-        if instruction[0].lower() == "move" and len(instruction) > 1:
-            controller.move_servo(instruction[1])
-        elif instruction[0].lower() == "status":
-            controller.get_status()
-
-    ### Glasses test ###
-    # args = parse_args()
+    system = SmolVLASRASystem(args.arduino_port, args.baud_rate, args.streaming_interface, \
+                              args.update_iptables, args.profile_name, args.device_ip)
     
-    # camera_handler = CameraHandler(args.streaming_interface, args.update_iptables, args.profile_name, args.device_ip)
-
-    # rgb_window = "Aria RGB"
-    # undistorted_window = "Undistorted RGB"
-
-    # cv2.namedWindow(rgb_window, cv2.WINDOW_NORMAL)
-    # cv2.resizeWindow(rgb_window, 512, 512)
-    # cv2.setWindowProperty(rgb_window, cv2.WND_PROP_TOPMOST, 1)
-    # cv2.moveWindow(rgb_window, 50, 50)
-
-    # cv2.namedWindow(undistorted_window, cv2.WINDOW_NORMAL)
-    # cv2.resizeWindow(undistorted_window, 512, 512)
-    # cv2.setWindowProperty(undistorted_window, cv2.WND_PROP_TOPMOST, 1)
-    # cv2.moveWindow(undistorted_window, 600, 50)
-
-    # with ctrl_c_handler() as ctrl_c:
-    #     while not (quit_keypress() or ctrl_c):
-    #         orig, undistorted = camera_handler.get_processed_frames()
-    #         if orig is not None and undistorted is not None:
-    #             cv2.imshow(rgb_window, orig)
-    #             cv2.imshow(undistorted_window, undistorted)
-
-    # # 10. Unsubscribe from data and stop streaming
-    # camera_handler.terminate()
+    system.run_control_loop()
 
 if __name__ == "__main__":
     main()
