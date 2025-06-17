@@ -1,9 +1,9 @@
 #include <Servo.h>
 int SERVO_PIN = 3;
 
-String readString; //String captured from serial port
-Servo myServo;  // create servo object to control a servo 
-int servoAngle; //value to write to servo
+String readString; // String captured from serial port
+Servo myServo;  // Create servo object to control a servo 
+int servoAngle; // Value to write to servo
 
 void setup() {
   myServo.attach(SERVO_PIN);
