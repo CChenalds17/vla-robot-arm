@@ -1,11 +1,13 @@
 from servo_controller import ServoController
 from camera_handler import CameraHandler
 
-from aria_common import ctrl_c_handler, quit_keypress
+from aria_common import ctrl_c_handler
 
 import torch
 import cv2
 from PIL import Image
+import threading
+import queue
 
 from lerobot.common.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
@@ -29,6 +31,14 @@ class SmolVLASRASystem:
         self.servo_controller = ServoController(arduino_port, baud_rate, init_angle=SmolVLASRASystem.convert_angle_to_arduino(INIT_ANGLE))
         self.camera_handler = CameraHandler(streaming_interface, update_iptables, profile_name, device_ip)
 
+        self.current_frame = None
+
+        # Task queue and current task
+        self.task_queue = queue.Queue()
+        self.current_task = ""
+        # Prompt thread (to ensure only 1 runs at a time)
+        self._prompting = threading.Event()
+
         # Display windows
         self.undistorted_window = "Undistorted Feed"
     
@@ -46,41 +56,80 @@ class SmolVLASRASystem:
         pol_state_dict['unnormalize_outputs.buffer_action.std'] = torch.from_numpy(self.dataset.meta.stats['action']['std'])
 
         self.policy.load_state_dict(pol_state_dict)
+    
+    def _prompt_for_task(self):
+        """Blocking prompt run in background thread. Does not interrupt main video/control loop"""
+        try:
+            new_task = input("\nEnter new task: ")
+            self.task_queue.put(new_task.strip())
+            print(f"Queued new task: {new_task}")
+        except EOFError:
+            print("Prompt cancelled (EOF)")
+        finally:
+            self._prompting.clear()
 
     def run_control_loop(self):
         """Control loop to operate SRA"""
-        # TODO: Implement multithreading for task retrieval, etc
-            # I think I will need a task listener or something
-
         cv2.namedWindow(self.undistorted_window, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(self.undistorted_window, 512, 512)
         cv2.setWindowProperty(self.undistorted_window, cv2.WND_PROP_TOPMOST, 1)
         cv2.moveWindow(self.undistorted_window, 1200, 50)
 
         with ctrl_c_handler() as ctrl_c:
-            while not (quit_keypress() or ctrl_c):
+            while not (((key := (cv2.waitKey(1) & 0xFF)) in (27, ord('q'))) or ctrl_c):
+                # Get frame from camera handler
                 undistorted_display = self.camera_handler.get_processed_frame()
-
-                key = cv2.waitKey(1)
+                # Update current_frame if there is a new frame
                 if undistorted_display is not None:
-                    cv2.imshow(self.undistorted_window, undistorted_display)
+                    self.current_frame = undistorted_display
 
-                    # (For now) Upon pressing SPACE, generate prediction and send it to Arduino
-                    if key == ord(' '):
-                        observation = self.get_observation(undistorted_display)
-                        action = self.policy.select_action(observation)
+                # If we haven't gotten our initial frame yet, block until we have it
+                if self.current_frame is None:
+                    key = cv2.waitKey(1) & 0xFF
+                    continue
+                # Show current frame
+                cv2.imshow(self.undistorted_window, self.current_frame)
 
-                        print(f"VLA Action: {action}")
-                        servo_angle = SmolVLASRASystem.action_to_angle(action)
-                        self.servo_controller.move_servo(SmolVLASRASystem.convert_angle_to_arduino(servo_angle))
+                # Spawn background prompt on 't'
+                if key == ord('t'):
+                    # Check that prompt thread isn't already running
+                    if not self._prompting.is_set():
+                        self._prompting.set()
+                        threading.Thread(target=self._prompt_for_task, daemon=True).start()
+
+                # Check for any new tasks and update
+                try:
+                    new_task = self.task_queue.get_nowait()
+                    self.current_task = new_task
+                    print(f"Switched to new task: {self.current_task}")
+                except queue.Empty:
+                    pass
+
+                # (For now) Upon pressing SPACE, generate prediction and send it to Arduino
+                if key == 32:
+                    # If there is no task yet, prompt user for task
+                    if self.current_task == "":
+                        if not self._prompting.is_set():
+                            self._prompting.set()
+                            print(f"\nYou must enter a task first")
+                            threading.Thread(target=self._prompt_for_task, daemon=True).start()
+                        continue
+                    
+                    # If there is a task, get the prediction
+                    observation = self.get_observation()
+                    action = self.policy.select_action(observation)
+
+                    print(f"VLA Action: {action}")
+                    servo_angle = SmolVLASRASystem.action_to_angle(action)
+                    self.servo_controller.move_servo(SmolVLASRASystem.convert_angle_to_arduino(servo_angle))
         
         self.camera_handler.terminate()
 
-    def get_observation(self, undistorted_display):
+    def get_observation(self):
         obs = SmolVLASRASystem.convert_angle_to_vla(self.servo_controller.get_status()) # Gets servo angle from Arduino and converts it
         observation_state = SmolVLASRASystem.obs_to_smolvla_state(obs).to(self.device)
-        observation_image_top = SmolVLASRASystem.img_to_smolvla_tensor(undistorted_display).to(self.device)
-        task = self.get_task()
+        observation_image_top = SmolVLASRASystem.img_to_smolvla_tensor(self.current_frame).to(self.device)
+        task = self.current_task
 
         observation = {
             "observation.state": observation_state,
@@ -97,9 +146,6 @@ class SmolVLASRASystem:
         print('---------------------------------------------------------')
 
         return observation
-
-    def get_task(self):
-        return "Move left"
         
     @staticmethod
     def img_to_smolvla_tensor(img):

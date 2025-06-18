@@ -65,9 +65,3 @@ def ctrl_c_handler(signal_handler=None):
         yield state
     finally:
         signal.signal(signal.SIGINT, original_sigint_handler)
-
-
-def quit_keypress():
-    key = cv2.waitKey(1)
-    # Press ESC, 'q'
-    return key == 27 or key == ord("q")
