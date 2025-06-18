@@ -8,6 +8,7 @@ import cv2
 from PIL import Image
 import threading
 import queue
+import time
 
 from lerobot.common.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
@@ -19,16 +20,21 @@ class SmolVLASRASystem:
     """
     System integrating Aria glasses, SmolVLA, and Arduino. Treats angle range as [-180, +180] and **converts every angle before transmission with Arduino**.
     """
-    def __init__(self, arduino_port, baud_rate, streaming_interface, update_iptables, profile_name, device_ip, \
-                 datasest_path="danaaubakirova/svla_so100_task4_v3_clean", model_path="lerobot/smolvla_base", device="mps"):
+    def __init__(self, arduino_port, baud_rate, streaming_interface, update_iptables, profile_name, device_ip, control_hz=15.0, \
+                 print_outputs=False, datasest_path="danaaubakirova/svla_so100_task4_v3_clean", model_path="lerobot/smolvla_base", device="mps"):
         # Initialize components (parameters supplied by command-line arguments)
+        self.print_outputs = print_outputs
+
+        # Set up gating for prediction frequency
+        self.control_interval = 1.0 / control_hz   # Seconds between predictions
+        self._last_control_time = 0.0
 
         self.device = device
         self.dataset = LeRobotDataset(datasest_path)
         self.policy = SmolVLAPolicy.from_pretrained(model_path)
         self.setup_pol_state_dict()
 
-        self.servo_controller = ServoController(arduino_port, baud_rate, init_angle=SmolVLASRASystem.convert_angle_to_arduino(INIT_ANGLE))
+        self.servo_controller = ServoController(arduino_port, baud_rate, SmolVLASRASystem.convert_angle_to_arduino(INIT_ANGLE), print_outputs)
         self.camera_handler = CameraHandler(streaming_interface, update_iptables, profile_name, device_ip)
 
         self.current_frame = None
@@ -60,6 +66,7 @@ class SmolVLASRASystem:
     def _prompt_for_task(self):
         """Blocking prompt run in background thread. Does not interrupt main video/control loop"""
         try:
+            self.current_task = ""
             new_task = input("\nEnter new task: ")
             self.task_queue.put(new_task.strip())
             print(f"Queued new task: {new_task}")
@@ -105,8 +112,11 @@ class SmolVLASRASystem:
                 except queue.Empty:
                     pass
 
-                # (For now) Upon pressing SPACE, generate prediction and send it to Arduino
-                if key == 32:
+                # Automatic control step (according to desired frequency)
+                now = time.perf_counter()
+                if now - self._last_control_time >= self.control_interval:
+                    self._last_control_time = now
+                    
                     # If there is no task yet, prompt user for task
                     if self.current_task == "":
                         if not self._prompting.is_set():
@@ -119,7 +129,8 @@ class SmolVLASRASystem:
                     observation = self.get_observation()
                     action = self.policy.select_action(observation)
 
-                    print(f"VLA Action: {action}")
+                    if self.print_outputs:
+                        print(f"VLA Action: {action}")
                     servo_angle = SmolVLASRASystem.action_to_angle(action)
                     self.servo_controller.move_servo(SmolVLASRASystem.convert_angle_to_arduino(servo_angle))
         
@@ -138,13 +149,14 @@ class SmolVLASRASystem:
             "task": [task]
         }
 
-        print('---------------------------------------------------------')
-        print(f"Observation State: {observation_state}")
-        SmolVLASRASystem.tensor_to_pil(observation_image_top).show()
-        print(f"Observation Image Top: {observation_image_top}")
-        print(f"Observation Image Top Shape: {observation_image_top.shape}")
-        print(f"Task: {task}")
-        print('---------------------------------------------------------')
+        if self.print_outputs:
+            print('---------------------------------------------------------')
+            print(f"Observation State: {observation_state}")
+            SmolVLASRASystem.tensor_to_pil(observation_image_top).show()
+            print(f"Observation Image Top: {observation_image_top}")
+            print(f"Observation Image Top Shape: {observation_image_top.shape}")
+            print(f"Task: {task}")
+            print('---------------------------------------------------------')
 
         return observation
         
