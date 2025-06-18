@@ -9,9 +9,11 @@ class ServoController:
     - Status request takes the form "STATUS" and receives response "STATUS:[angle]"
     - Sees angle range [0, +180]
     """
-    def __init__(self, arduino_port, baud_rate, init_angle):
+    def __init__(self, arduino_port, baud_rate, init_angle, print_communications):
         # TODO: set up serial read/write timeout once proof of concept is working
             # 1, 2, 4, 8, 16 seconds (5 tries)
+
+        self.print_communications = print_communications
 
         # Connect to Arduino
         self.arduino = serial.Serial(arduino_port, baud_rate)
@@ -47,14 +49,16 @@ class ServoController:
         
         # Send MOVE instruction to Arduino
         command = f"MOVE:{angle}\n"
-        print(f"Moving servo to {angle}")
+        if self.print_communications:
+            print(f"Moving servo to {angle}")
         self.arduino.write(command.encode())
 
         # Parses resulting angle from Arduino response as a float
         response = self.arduino.readline().decode().strip()
         try:
             response_angle = int(response[6:]) # After "MOVED:"
-            print(f"Response: {response_angle}")
+            if self.print_communications:
+                print(f"Response: {response_angle}")
             if response_angle == angle:
                 return response_angle
             else:
@@ -69,13 +73,15 @@ class ServoController:
         """Requests servo position from Arduino. If the response angle is an int within the servo bounds, return the angle as a float. Otherwise, return -1"""
         # Send STATUS request to Arduino
         self.arduino.write(b"STATUS\n")
-        print("Requesting servo status")
+        if self.print_communications:
+            print("Requesting servo status")
 
         # Parse resulting angle from Arduino
         response = self.arduino.readline().decode().strip()
         try:
             response_angle = int(response[7:]) # After "STATUS:"
-            print(f"Status: {response_angle}")
+            if self.print_communications:
+                print(f"Status: {response_angle}")
             if 0 <= response_angle and response_angle <= 180:
                 return response_angle
             else:
