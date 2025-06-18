@@ -126,6 +126,7 @@ class SmolVLASRASystem:
         self.camera_handler.terminate()
 
     def get_observation(self):
+        """Fetches observation data and formats it for SmolVLA"""
         obs = SmolVLASRASystem.convert_angle_to_vla(self.servo_controller.get_status()) # Gets servo angle from Arduino and converts it
         observation_state = SmolVLASRASystem.obs_to_smolvla_state(obs).to(self.device)
         observation_image_top = SmolVLASRASystem.img_to_smolvla_tensor(self.current_frame).to(self.device)
@@ -178,6 +179,7 @@ class SmolVLASRASystem:
 
     @staticmethod
     def tensor_to_pil(t: torch.Tensor, mode="RGB") -> Image.Image:
+        """Converts tensor to PIL image to display on computer"""
         t = t.cpu().detach().squeeze(0)
         arr = (t * 255).clamp(0,255).byte().permute(1, 2, 0).numpy()
         return Image.fromarray(arr, mode=mode)

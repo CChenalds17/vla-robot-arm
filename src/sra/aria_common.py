@@ -16,9 +16,6 @@ import signal
 import subprocess
 from contextlib import contextmanager
 
-import cv2
-
-
 def update_iptables() -> None:
     """
     Update firewall to permit incoming UDP connections for DDS
