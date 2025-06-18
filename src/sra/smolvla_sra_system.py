@@ -35,7 +35,7 @@ class SmolVLASRASystem:
 
         # Task queue and current task
         self.task_queue = queue.Queue()
-        self.current_task = "Move left"
+        self.current_task = ""
         # Prompt thread (to ensure only 1 runs at a time)
         self._prompting = threading.Event()
 
@@ -61,7 +61,7 @@ class SmolVLASRASystem:
         """Blocking prompt run in background thread. Does not interrupt main video/control loop"""
         try:
             new_task = input("\nEnter new task: ")
-            self.task_queue.put(new_task)
+            self.task_queue.put(new_task.strip())
             print(f"Queued new task: {new_task}")
         except EOFError:
             print("Prompt cancelled (EOF)")
@@ -107,6 +107,15 @@ class SmolVLASRASystem:
 
                 # (For now) Upon pressing SPACE, generate prediction and send it to Arduino
                 if key == 32:
+                    # If there is no task yet, prompt user for task
+                    if self.current_task == "":
+                        if not self._prompting.is_set():
+                            self._prompting.set()
+                            print(f"\nYou must enter a task first")
+                            threading.Thread(target=self._prompt_for_task, daemon=True).start()
+                        continue
+                    
+                    # If there is a task, get the prediction
                     observation = self.get_observation()
                     action = self.policy.select_action(observation)
 
