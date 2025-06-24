@@ -63,7 +63,7 @@ jsonlines==4.0.0
 jupyter_client==8.6.3
 jupyter_core==5.8.1
 kiwisolver==1.4.8
--e git+https://github.com/huggingface/lerobot.git@2b71789e15c35418b1ccecbceb81f4a598bfd883#egg=lerobot&subdirectory=../../../src/lerobot
+-e git+https://github.com/huggingface/lerobot.git@2b71789e15c35418b1ccecbceb81f4a598bfd883#egg=lerobot
 llvmlite==0.44.0
 MarkupSafe==3.0.2
 matplotlib==3.10.3
@@ -118,6 +118,7 @@ pyserial==3.5
 PySocks==1.7.1
 python-dateutil==2.9.0.post0
 pytz==2025.2
+pyvirtualcam==0.13.0
 PyYAML==6.0.2
 pyyaml-include==1.4.1
 pyzmq==26.4.0
