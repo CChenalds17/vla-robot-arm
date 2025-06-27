@@ -9,7 +9,7 @@ class ServoController:
     - Status request takes the form "STATUS" and receives response "STATUS:[angle]"
     - Sees angle range [0, +180]
     """
-    def __init__(self, arduino_port, baud_rate, init_angle, print_communications):
+    def __init__(self, arduino_port, baud_rate, init_angle = 90, print_communications = False):
         # TODO: set up serial read/write timeout once proof of concept is working
             # 1, 2, 4, 8, 16 seconds (5 tries)
 

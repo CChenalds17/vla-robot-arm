@@ -12,7 +12,7 @@ def parse_args() -> argparse.Namespace:
         "--baud",
         dest="baud_rate",
         type=int,
-        default=11520,
+        default=115200,
         help="Baud rate for Serial communication with Arduino. This needs to match the baud rate in the Arduino code.",
     )
     parser.add_argument(
@@ -39,5 +39,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--device-ip", help="IP address to connect to the device over wifi"
+    )
+
+    parser.add_argument(
+        "--dataset-repo-id", type=str, default="cchenalds17/svla_custom_aria_1dof_find", help="Dataset repository ID (e.g., 'username/dataset_name')"
+    )
+    parser.add_argument(
+        "--dataset-root", type=str, default="./recorded_datasets", help="Root directory for dataset storage"
+    )
+    parser.add_argument(
+        "--fps", type=int, default=10, help="Recording frame rate"
     )
     return parser.parse_args()
