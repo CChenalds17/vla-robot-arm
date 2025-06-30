@@ -21,7 +21,7 @@ class SmolVLASRASystem:
     System integrating Aria glasses, SmolVLA, and Arduino. Treats angle range as [-180, +180] and **converts every angle before transmission with Arduino**.
     """
     def __init__(self, arduino_port, baud_rate, streaming_interface, update_iptables, profile_name, device_ip, control_hz=10.0, \
-                 print_outputs=False, datasest_path="danaaubakirova/svla_so100_task4_v3_clean", model_path="lerobot/smolvla_base", device="mps"):
+                 print_outputs=False, dataset_path="cchenalds17/svla_custom_aria_1dof", model_path="lerobot/smolvla_base", device="mps"):
         # Initialize components (parameters supplied by command-line arguments)
         self.print_outputs = print_outputs
 
@@ -30,7 +30,7 @@ class SmolVLASRASystem:
         self._last_control_time = 0.0
 
         self.device = device
-        self.dataset = LeRobotDataset(datasest_path)
+        self.dataset = LeRobotDataset(dataset_path)
         self.policy = SmolVLAPolicy.from_pretrained(model_path)
         self.setup_pol_state_dict()
 
@@ -140,21 +140,21 @@ class SmolVLASRASystem:
         """Fetches observation data and formats it for SmolVLA"""
         obs = convert_angle_to_vla(self.servo_controller.get_status()) # Gets servo angle from Arduino and converts it
         observation_state = SmolVLASRASystem.obs_to_smolvla_state(obs).to(self.device)
-        observation_image_top = SmolVLASRASystem.img_to_smolvla_tensor(self.current_frame).to(self.device)
+        observation_image = SmolVLASRASystem.img_to_smolvla_tensor(self.current_frame).to(self.device)
         task = self.current_task
 
         observation = {
             "observation.state": observation_state,
-            "observation.image": observation_image_top,
+            "observation.image": observation_image,
             "task": [task]
         }
 
         if self.print_outputs:
             print('---------------------------------------------------------')
             print(f"Observation State: {observation_state}")
-            tensor_to_pil(observation_image_top).show()
-            print(f"Observation Image Top: {observation_image_top}")
-            print(f"Observation Image Top Shape: {observation_image_top.shape}")
+            tensor_to_pil(observation_image).show()
+            print(f"Observation Image Top: {observation_image}")
+            print(f"Observation Image Top Shape: {observation_image.shape}")
             print(f"Task: {task}")
             print('---------------------------------------------------------')
 

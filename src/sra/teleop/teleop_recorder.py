@@ -13,6 +13,7 @@ class TeleopRecorder:
 
     def __init__(self, arduino_port, baud_rate, streaming_interface, update_iptables, profile_name, device_ip, \
                  dataset_repo_id, dataset_root="./recorded_datasets", fps=10):
+        self.dataset_repo_id = dataset_repo_id
         
         # Initialize hardware components
         self.servo_controller = ServoController(arduino_port, baud_rate, init_angle=90, print_communications=False)
@@ -71,17 +72,21 @@ class TeleopRecorder:
             }
         }
 
-        # Create dataset
-        dataset = LeRobotDataset.create(
-            repo_id=repo_id,
-            fps=fps,
-            features=features,
-            root=Path(root),
-            robot_type="custom_aria_1dof",
-            use_videos=True
-        )
-
-        return dataset
+        try:
+            # Create dataset
+            dataset = LeRobotDataset.create(
+                repo_id=repo_id,
+                fps=fps,
+                features=features,
+                root=Path(root) / repo_id,
+                robot_type="custom_aria_1dof",
+                use_videos=True
+            )
+            return dataset
+        except Exception as e:
+            print(f"Failed to initialize dataset: {e}")
+            self.cleanup()
+            return None
     
     def _prompt_for_task(self):
         """Prompt user for task input"""
@@ -142,56 +147,6 @@ class TeleopRecorder:
         # Add frame to dataset episode buffer
         self.dataset.add_frame(frame_data, task=self.current_task)
 
-        # # 3) Build a flat values dict for 'observation' and 'action'
-        # #    Keys must match your feature-spec names: joint_1…joint_6 + the exact image key
-        # obs_values = {
-        #     "joint_1": servo_angle_vla,
-        #     "joint_2": 0.0,
-        #     "joint_3": 0.0,
-        #     "joint_4": 0.0,
-        #     "joint_5": 0.0,
-        #     "joint_6": 0.0,
-        #     # must match the feature key "observation.image"
-        #     "observation.image": self.current_frame,
-        # }
-        # act_values = {
-        #     "joint_1": target_angle_vla,
-        #     "joint_2": 0.0,
-        #     "joint_3": 0.0,
-        #     "joint_4": 0.0,
-        #     "joint_5": 0.0,
-        #     "joint_6": 0.0,
-        # }
-
-        # print(f"[Step 3] obs_values keys: {list(obs_values.keys())}")
-        # for k, v in obs_values.items():
-        #     shape = v.shape if isinstance(v, np.ndarray) else "()"
-        #     print(f"    {k}: shape={shape}")
-        # print(f"[Step 3] act_values keys: {list(act_values.keys())}")
-        # for k, v in act_values.items():
-        #     print(f"    {k}: shape=()")
-
-        # # 4) Let Lerobot pack them into numpy arrays of the right dtype & shape
-        # obs_frame   = build_dataset_frame(self.dataset.features, obs_values, prefix="observation")
-        # action_frame = build_dataset_frame(self.dataset.features, act_values, prefix="action")
-
-        # print(f"[Step 4] obs_frame keys: {list(obs_frame.keys())}")
-        # for k, arr in obs_frame.items():
-        #     print(f"    {k}: shape={arr.shape}")
-        # print(f"[Step 4] action_frame keys: {list(action_frame.keys())}")
-        # for k, arr in action_frame.items():
-        #     print(f"    {k}: shape={arr.shape}")
-
-        # # 5) Merge and add to the episode buffer
-        # frame = {**obs_frame, **action_frame}
-
-        # print(f"[Step 5] merged frame keys: {list(frame.keys())}")
-        # for k, arr in frame.items():
-        #     print(f"    {k}: shape={arr.shape}")
-
-        # self.dataset.add_frame(frame, task=self.current_task)
-        
-        # Reset self.current_frame until next Aria frame gets read
         self.current_frame = None
     
     def run_teleoperation(self):
@@ -242,6 +197,7 @@ class TeleopRecorder:
             self.stop_recording()
         
         self.cleanup()
+        self.save_to_huggingface()
     
     def create_display_frame(self, frame):
         """Create display frame with overlay information"""
@@ -269,12 +225,25 @@ class TeleopRecorder:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         
         return display_frame
+    
+    def save_to_huggingface(self):
+        """Save dataaset to huggingface"""
+        print("Saving and pushing dataset...")
+        try:
+            self.dataset.push_to_hub(
+                private=False,
+                push_videos=True, 
+                tags=['lerobot', 'teleoperation', 'servo']
+            )
+            print(f"Dataset successfully pushed to: https://huggingface.co/datasets/{self.dataset.repo_id}")
+        except Exception as e:
+            print(f"Failed to push to hub: {e}")
 
     def cleanup(self):
         """Clean up resources and save dataset"""
-        self.dataset.push_to_hub()
         print("Cleaning up...")
         self.camera_handler.terminate()
         self.servo_controller.disconnect()
         cv2.destroyAllWindows()
-        print(f"Dataset saved to: {self.dataset.root}")
+
+        print(f"Dataset saved locally to: {self.dataset.root}")
