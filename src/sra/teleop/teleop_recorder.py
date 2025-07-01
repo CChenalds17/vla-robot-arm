@@ -8,12 +8,15 @@ from sra.servo_controller import ServoController
 from sra.helpers import convert_angle_to_vla
 from sra.aria_common import ctrl_c_handler
 
+SERVO_DELTA = 3
+
 class TeleopRecorder:
     """Teleoperation system that records data in LeRobot format"""
 
     def __init__(self, arduino_port, baud_rate, streaming_interface, update_iptables, profile_name, device_ip, \
-                 dataset_repo_id, dataset_root="./recorded_datasets", fps=10):
+                 dataset_repo_id, dataset_root="./recorded_datasets", fps=10, resume=True):
         self.dataset_repo_id = dataset_repo_id
+        self.resume = resume
         
         # Initialize hardware components
         self.servo_controller = ServoController(arduino_port, baud_rate, init_angle=90, print_communications=False)
@@ -23,6 +26,7 @@ class TeleopRecorder:
 
         # Create LeRobot dataset
         self.dataset = self.create_lerobot_dataset(dataset_repo_id, dataset_root, fps)
+        self.dataset_changed = False # So we don't try saving when nothing was changed
 
         # Recording state
         self.recording = False
@@ -34,12 +38,31 @@ class TeleopRecorder:
         
         print("Teleoperation recorder initialized!")
         print("Controls:")
+        print("  't' - Change task")
         print("  'r' - Start/stop recording episode")
         print("  '< (LEFT) / > (RIGHT)' - Move servo")
         print("  'q' or ESC - Quit")
 
     def create_lerobot_dataset(self, repo_id, root, fps):
-        """Create LeRobot dataset with proper features"""
+        """
+        Create LeRobot dataset with proper features for SmolVLA:
+        - 1-DoF (0-padded)
+        - 1 overhead camera (322x322x3 Aria)
+        """
+
+        dataset_path = Path(root) / repo_id
+
+        # Check if dataset already exists
+        if self.resume and dataset_path.exists() and (dataset_path / "meta" / "info.json").exists():
+            print(f"Resuming existing dataset: {repo_id}")
+            try:
+                # Load existing dataset
+                dataset = LeRobotDataset(repo_id=repo_id, root=dataset_path)
+                print(f"Resumed dataset with {dataset.meta.total_episodes} existing episodes")
+                return dataset
+            except Exception as e:
+                print(f"Failed to resume dataset: {e}")
+                print("Creating new dataset instead...")
 
         # Define features matching SmolVLA expectations (6 DoF with padding)
         features = {
@@ -82,6 +105,7 @@ class TeleopRecorder:
                 robot_type="custom_aria_1dof",
                 use_videos=True
             )
+            print(f"Created new dataset")
             return dataset
         except Exception as e:
             print(f"Failed to initialize dataset: {e}")
@@ -116,6 +140,7 @@ class TeleopRecorder:
 
         # Save episode
         self.dataset.save_episode()
+        self.dataset_changed = True
 
         print(f"Episode saved with task: {self.current_task}")
     
@@ -179,13 +204,16 @@ class TeleopRecorder:
                         self.stop_recording()
                     else:
                         self.start_recording()
+                elif key == ord('t') and not self.recording:
+                    # Prompt for new task (only when not currently recording)
+                    self._prompt_for_task()
                 elif key == ord(','): # Left ('<')
                     # Move servo left
-                    self.current_target_angle = max(0, self.current_target_angle - 5)
+                    self.current_target_angle = max(0, self.current_target_angle - SERVO_DELTA)
                     self.servo_controller.move_servo(self.current_target_angle)
                 elif key == ord('.'): # Right ('>')
                     # Move servo right
-                    self.current_target_angle = min(180, self.current_target_angle + 5)
+                    self.current_target_angle = min(180, self.current_target_angle + SERVO_DELTA)
                     self.servo_controller.move_servo(self.current_target_angle)
                 else:
                     self.servo_controller.move_servo(self.current_target_angle)
@@ -197,7 +225,8 @@ class TeleopRecorder:
             self.stop_recording()
         
         self.cleanup()
-        self.save_to_huggingface()
+        if self.dataset_changed:
+            self.save_to_huggingface()
     
     def create_display_frame(self, frame):
         """Create display frame with overlay information"""
@@ -246,4 +275,5 @@ class TeleopRecorder:
         self.servo_controller.disconnect()
         cv2.destroyAllWindows()
 
-        print(f"Dataset saved locally to: {self.dataset.root}")
+        if self.dataset_changed:
+            print(f"Dataset saved locally to: {self.dataset.root}")
