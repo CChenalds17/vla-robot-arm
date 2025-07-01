@@ -19,7 +19,7 @@ class TeleopRecorder:
         self.resume = resume
         
         # Initialize hardware components
-        self.servo_controller = ServoController(arduino_port, baud_rate, init_angle=90, print_communications=False)
+        self.servo_controller = ServoController(arduino_port, baud_rate, init_angle=90)
         self.camera_handler = CameraHandler(streaming_interface, update_iptables, profile_name, device_ip)
         self.current_frame = None # For dataset input (toggles from existing to None to make sure duplicate frames aren't recorded)
         self.display_frame = None # Smoothes out display window
@@ -214,8 +214,6 @@ class TeleopRecorder:
                 elif key == ord('.'): # Right ('>')
                     # Move servo right
                     self.current_target_angle = min(180, self.current_target_angle + SERVO_DELTA)
-                    self.servo_controller.move_servo(self.current_target_angle)
-                else:
                     self.servo_controller.move_servo(self.current_target_angle)
                 
                 # Record frame if recording is active

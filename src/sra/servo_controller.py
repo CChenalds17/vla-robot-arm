@@ -1,97 +1,74 @@
 import serial
 import time
 
+CMD_HANDSHAKE = 0x00
+RSP_HANDSHAKE = 0xFF
+CMD_MOVE = 0x01
+CMD_STATUS = 0x02
+RSP_MOVED = 0x81
+RSP_STATUS = 0x82
+
 class ServoController:
     """
-    Class for Arduino communication to read/write servo angles.
-    Initializes connection by sending "MARCO" to Arduino, expects "POLO" in response.
-    - Movement commands take the form "MOVE:[angle]" and receives response "MOVED:[angle]"
-    - Status request takes the form "STATUS" and receives response "STATUS:[angle]"
-    - Sees angle range [0, +180]
+    Class for Arduino communication to read/write servo angles. Sees angle range [0, +180]
     """
-    def __init__(self, arduino_port, baud_rate, init_angle = 90, print_communications = False):
-        # TODO: set up serial read/write timeout once proof of concept is working
-            # 1, 2, 4, 8, 16 seconds (5 tries)
-
-        self.print_communications = print_communications
-
+    def __init__(self, arduino_port, baud_rate, init_angle = 90):
         # Connect to Arduino
-        self.arduino = serial.Serial(arduino_port, baud_rate)
+        self.ser = serial.Serial(arduino_port, baud_rate, timeout=0.1)
         print("Connecting to Arduino...")
-        time.sleep(2) # Wait 2 seconds to allow time for connection
-        if self.confirm_connection():
-            print(f"Connected to port {arduino_port} at {baud_rate} baud")
-            self.move_servo(init_angle)
-        else:
-            print(f"Connection failed.")
+        time.sleep(2) # Wait 2 seconds to let Arduino reset
+
+        # Perform handshake
+        if not self._handshake():
             self.disconnect()
+            raise IOError("Failed to handshake with Arduino")
         
-    def confirm_connection(self):
-        """Confirms connection with Arduino through Marco Polo message. Returns connection status as boolean"""
-        # Instruction
-        self.arduino.write(b"MARCO\n")
-        # Response
-        response = self.arduino.readline().decode().strip()
-        return response == "POLO"
+        print(f"Connected to port {arduino_port} at {baud_rate} baud")
+        # Move to initial position
+        self.move_servo(init_angle)
+
+    def _handshake(self, retries=5):
+        """Send handshake request and expect RSP_HANDSHAKE back. Return success status as boolean"""
+        for attempt in range(retries):
+            self.ser.write(bytes([CMD_HANDSHAKE, 0x00]))
+            resp = self.ser.read(2)
+            if len(resp) == 2 and resp[0] == RSP_HANDSHAKE:
+                return True
+            time.sleep(0.1 * (2 ** attempt))
+        return False
+    
+    def disconnect(self):
+        """Close connection with Arduino"""
+        print("Disconnecting from Arduino")
+        self.ser.close()
+
+    def _send(self, cmd_id, arg=0):
+        """Send two-byte packet and read two-byte response."""
+        self.ser.write(bytes([cmd_id, arg]))
+        resp = self.ser.read(2)
+        if len(resp) != 2:
+            self.disconnect()
+            raise IOError("Timeout or incomplete response")
+        return resp[0], resp[1]
     
     def move_servo(self, angle):
         """
-        Instructs Arduino to move servo to the given input angle.
-        Returns the angle the Arduino received and sets self.current_angle if it is equal to the transmitted angle.
-        Otherwise, returns -1 and closes the connection
+        Instructs Arduino to move servo to the given input angle. Returns the angle the Arduino received
         """
-        # Validate angle is within servo bounds
-        angle = round(angle)
-        if angle < 0 or angle > 180:
-            print("Error: Angle is not in the valid range")
+        angle = int(round(angle))
+        if not 0 <= angle <= 180:
             self.disconnect()
-            return -1
-        
-        # Send MOVE instruction to Arduino
-        command = f"MOVE:{angle}\n"
-        if self.print_communications:
-            print(f"Moving servo to {angle}")
-        self.arduino.write(command.encode())
-
-        # Parses resulting angle from Arduino response as a float
-        response = self.arduino.readline().decode().strip()
-        try:
-            response_angle = int(response[6:]) # After "MOVED:"
-            if self.print_communications:
-                print(f"Response: {response_angle}")
-            if response_angle == angle:
-                return response_angle
-            else:
-                print("Error: Response angle does not match")
-        except ValueError:
-            print("Error: Arduino response is not a valid integer")
-
-        self.disconnect()
-        return -1
-
-    def get_status(self):
-        """Requests servo position from Arduino. If the response angle is an int within the servo bounds, return the angle as a float. Otherwise, return -1"""
-        # Send STATUS request to Arduino
-        self.arduino.write(b"STATUS\n")
-        if self.print_communications:
-            print("Requesting servo status")
-
-        # Parse resulting angle from Arduino
-        response = self.arduino.readline().decode().strip()
-        try:
-            response_angle = int(response[7:]) # After "STATUS:"
-            if self.print_communications:
-                print(f"Status: {response_angle}")
-            if 0 <= response_angle and response_angle <= 180:
-                return response_angle
-            else:
-                print("Error: Angle is not in the valid range")
-        except ValueError:
-            print("Error: Arduino response is a not a valid integer")
-
-        self.disconnect()
-        return -1
+            raise ValueError("Angle out of range")
+        rsp_id, rsp_angle = self._send(CMD_MOVE, angle)
+        if rsp_id != RSP_MOVED or rsp_angle != angle:
+            self.disconnect()
+            raise IOError(f"Bad MOVE response: {rsp_id:#02x}, {rsp_angle}")
+        return rsp_angle
     
-    def disconnect(self):
-        print("Disconnecting from Arduino")
-        self.arduino.close()
+    def get_status(self):
+        """Requests servo position from Arduino. If the response angle is an int within the servo bounds, return the angle as an int"""
+        rsp_id, rsp_angle = self._send(CMD_STATUS, 0)
+        if rsp_id != RSP_STATUS or not (0 <= rsp_angle <= 180):
+            self.disconnect()
+            raise IOError(f"Bad STATUS response: {rsp_id:#02x}, {rsp_angle}")
+        return rsp_angle

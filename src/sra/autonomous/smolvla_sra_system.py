@@ -34,7 +34,7 @@ class SmolVLASRASystem:
         self.policy = SmolVLAPolicy.from_pretrained(model_path)
         self.setup_pol_state_dict()
 
-        self.servo_controller = ServoController(arduino_port, baud_rate, convert_angle_to_arduino(INIT_ANGLE), print_outputs)
+        self.servo_controller = ServoController(arduino_port, baud_rate, convert_angle_to_arduino(INIT_ANGLE))
         self.camera_handler = CameraHandler(streaming_interface, update_iptables, profile_name, device_ip)
 
         self.current_frame = None
