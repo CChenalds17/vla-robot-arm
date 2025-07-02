@@ -90,7 +90,8 @@ class CameraHandler:
             return None
         
         # Convert color space
-        rgb_image = cv2.cvtColor(self.observer.rgb_image, cv2.COLOR_BGR2RGB)
+        # rgb_image = cv2.cvtColor(self.observer.rgb_image, cv2.COLOR_BGR2RGB)
+        rgb_image = self.observer.rgb_image
         # Apply undistortion correction
         undistorted_rgb_image = distort_by_calibration(rgb_image, self.dst_calib, self.rgb_calib)
         # Rotate image

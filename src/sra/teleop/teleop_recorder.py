@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 from pathlib import Path
+import time
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.common.datasets.utils import build_dataset_frame
 from sra.camera_handler import CameraHandler
@@ -8,7 +9,13 @@ from sra.servo_controller import ServoController
 from sra.helpers import convert_angle_to_vla
 from sra.aria_common import ctrl_c_handler
 
-SERVO_DELTA = 3
+BASE_DELTA = 1 # Original per-press step
+ACCELERATION = 7.5 # Degrees per second of hold
+MAX_DELTA = 15 # Clamp so it can't run away
+KEY_RESET_TIME = 0.1 # If you pause >100ms, treat as a new press
+
+TARGET_FPS = 60 # Higher update rate for smoother movement
+FRAME_TIME = 1.0 / TARGET_FPS
 
 class TeleopRecorder:
     """Teleoperation system that records data in LeRobot format"""
@@ -18,8 +25,14 @@ class TeleopRecorder:
         self.dataset_repo_id = dataset_repo_id
         self.resume = resume
         
-        # Initialize hardware components
-        self.servo_controller = ServoController(arduino_port, baud_rate, init_angle=90, print_communications=False)
+        # Initialize servo components
+        self.servo_controller = ServoController(arduino_port, baud_rate, init_angle=90)
+        self.last_key = None
+        self.key_press_time = 0.0
+        self.key_last_time = 0.0
+        self.key_held = False
+
+        # Initialize camera components
         self.camera_handler = CameraHandler(streaming_interface, update_iptables, profile_name, device_ip)
         self.current_frame = None # For dataset input (toggles from existing to None to make sure duplicate frames aren't recorded)
         self.display_frame = None # Smoothes out display window
@@ -141,7 +154,6 @@ class TeleopRecorder:
         # Save episode
         self.dataset.save_episode()
         self.dataset_changed = True
-
         print(f"Episode saved with task: {self.current_task}")
     
     def record_frame(self):
@@ -181,8 +193,19 @@ class TeleopRecorder:
         cv2.setWindowProperty(self.display_window, cv2.WND_PROP_TOPMOST, 1)
         cv2.moveWindow(self.display_window, 1200, 50)
 
+        last_update = time.time()
+
         with ctrl_c_handler() as ctrl_c:
             while not (((key := (cv2.waitKey(1) & 0xFF)) in (27, ord('q'))) or ctrl_c):
+                now = time.time()
+
+                # Maintain consistent frame rate
+                elapsed = now - last_update
+                if elapsed < FRAME_TIME:
+                    time.sleep(FRAME_TIME - elapsed)
+                    now = time.time()
+                last_update = now
+
                 # Get and display current frame
                 current_frame = self.camera_handler.get_processed_frame()
                 if current_frame is not None:
@@ -194,32 +217,59 @@ class TeleopRecorder:
                     continue
                 
                 # Create display frame with overlay information
-                display_frame = self.create_display_frame(self.display_frame)
+                display_frame = self.create_display_frame(cv2.cvtColor(self.display_frame, cv2.COLOR_BGR2RGB))
                 cv2.imshow(self.display_window, display_frame)
 
                 # Handle control inputs
                 if key == ord('r'): 
+                    self.last_key = ord('r')
                     # Toggle recording:
                     if self.recording:
                         self.stop_recording()
                     else:
                         self.start_recording()
                 elif key == ord('t') and not self.recording:
+                    self.last_key = ord('t')
                     # Prompt for new task (only when not currently recording)
                     self._prompt_for_task()
-                elif key == ord(','): # Left ('<')
-                    # Move servo left
-                    self.current_target_angle = max(0, self.current_target_angle - SERVO_DELTA)
-                    self.servo_controller.move_servo(self.current_target_angle)
-                elif key == ord('.'): # Right ('>')
-                    # Move servo right
-                    self.current_target_angle = min(180, self.current_target_angle + SERVO_DELTA)
-                    self.servo_controller.move_servo(self.current_target_angle)
-                else:
-                    self.servo_controller.move_servo(self.current_target_angle)
+                elif key in (ord(','), ord('.')):
+                    # Movement keys
+                    if key != self.last_key or (now - self.key_last_time) > KEY_RESET_TIME:
+                        # New keypress
+                        self.last_key = key
+                        self.key_press_time = now
+                        self.key_held = True
+                        hold_time = 0.0
+                    else:
+                        # Continuing to hold the same key
+                        hold_time = now - self.key_press_time
+
+                    self.key_last_time = now
+
+                    # Compute accelerated delta
+                    delta = int(BASE_DELTA + ACCELERATION * hold_time)
+                    delta = min(delta, MAX_DELTA)
+
+                    # Apply movement
+                    if key == ord(','): # Left ('<')
+                        self.current_target_angle = max(0, self.current_target_angle - delta)
+                    elif key == ord('.'): # Right ('>')
+                        self.current_target_angle = min(180, self.current_target_angle + delta)
+
+                    try:
+                        self.servo_controller.move_servo(self.current_target_angle)
+                    except Exception as e:
+                        self.cleanup()
+                        raise
+                elif key == 255:
+                    # Reset key state when no key is pressed
+                    if self.key_held and (now - self.key_last_time) > KEY_RESET_TIME:
+                        self.key_held = False
+                        self.last_key = None
                 
                 # Record frame if recording is active
                 self.record_frame()
+
         # Clean up
         if self.recording:
             self.stop_recording()
