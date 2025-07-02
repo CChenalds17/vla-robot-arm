@@ -10,9 +10,12 @@ from sra.helpers import convert_angle_to_vla
 from sra.aria_common import ctrl_c_handler
 
 BASE_DELTA = 1 # Original per-press step
-ACCELERATION = 10 # Degrees per second of hold
-MAX_DELTA = 20 # Clamp so it can't run away
+ACCELERATION = 7.5 # Degrees per second of hold
+MAX_DELTA = 15 # Clamp so it can't run away
 KEY_RESET_TIME = 0.1 # If you pause >100ms, treat as a new press
+
+TARGET_FPS = 60 # Higher update rate for smoother movement
+FRAME_TIME = 1.0 / TARGET_FPS
 
 class TeleopRecorder:
     """Teleoperation system that records data in LeRobot format"""
@@ -151,7 +154,6 @@ class TeleopRecorder:
         # Save episode
         self.dataset.save_episode()
         self.dataset_changed = True
-
         print(f"Episode saved with task: {self.current_task}")
     
     def record_frame(self):
@@ -191,9 +193,18 @@ class TeleopRecorder:
         cv2.setWindowProperty(self.display_window, cv2.WND_PROP_TOPMOST, 1)
         cv2.moveWindow(self.display_window, 1200, 50)
 
+        last_update = time.time()
+
         with ctrl_c_handler() as ctrl_c:
             while not (((key := (cv2.waitKey(1) & 0xFF)) in (27, ord('q'))) or ctrl_c):
                 now = time.time()
+
+                # Maintain consistent frame rate
+                elapsed = now - last_update
+                if elapsed < FRAME_TIME:
+                    time.sleep(FRAME_TIME - elapsed)
+                    now = time.time()
+                last_update = now
 
                 # Get and display current frame
                 current_frame = self.camera_handler.get_processed_frame()
@@ -206,7 +217,7 @@ class TeleopRecorder:
                     continue
                 
                 # Create display frame with overlay information
-                display_frame = self.create_display_frame(self.display_frame)
+                display_frame = self.create_display_frame(cv2.cvtColor(self.display_frame, cv2.COLOR_BGR2RGB))
                 cv2.imshow(self.display_window, display_frame)
 
                 # Handle control inputs
