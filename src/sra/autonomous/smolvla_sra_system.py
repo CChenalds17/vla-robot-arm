@@ -21,7 +21,7 @@ class SmolVLASRASystem:
     System integrating Aria glasses, SmolVLA, and Arduino. Treats angle range as [-180, +180] and **converts every angle before transmission with Arduino**.
     """
     def __init__(self, arduino_port, baud_rate, streaming_interface, update_iptables, profile_name, device_ip, control_hz=10.0, \
-                 print_outputs=False, dataset_path="cchenalds17/svla_custom_aria_1dof", model_path="lerobot/smolvla_base", device="mps"):
+                 print_outputs=False, dataset_path="cchenalds17/svla_custom_aria_1dof", model_path="cchenalds17/custom_aria_1dof_test0", device="mps"):
         # Initialize components (parameters supplied by command-line arguments)
         self.print_outputs = print_outputs
 
@@ -95,7 +95,7 @@ class SmolVLASRASystem:
                     key = cv2.waitKey(1) & 0xFF
                     continue
                 # Show current frame
-                cv2.imshow(cv2.cvtColor(self.undistorted_window, cv2.COLOR_BGR2RGB), self.current_frame)
+                cv2.imshow(self.undistorted_window, cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB))
 
                 # Spawn background prompt on 't'
                 if key == ord('t'):

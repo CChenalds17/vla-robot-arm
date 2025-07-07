@@ -43,8 +43,10 @@ class TeleopRecorder:
 
         # Recording state
         self.recording = False
+        self.awaiting_confirmation = False
         self.current_target_angle = 90
         self.current_task = ""
+        self.episode_frame_count = 0
 
         # Display setup
         self.display_window = "Teleoperation Control"
@@ -53,6 +55,8 @@ class TeleopRecorder:
         print("Controls:")
         print("  't' - Change task")
         print("  'r' - Start/stop recording episode")
+        print("  'y' - Confirm and save episode")
+        print("  'n' - Delete/discard episode")
         print("  '< (LEFT) / > (RIGHT)' - Move servo")
         print("  'q' or ESC - Quit")
 
@@ -76,6 +80,7 @@ class TeleopRecorder:
             except Exception as e:
                 print(f"Failed to resume dataset: {e}")
                 print("Creating new dataset instead...")
+                self.cleanup()
 
         # Define features matching SmolVLA expectations (6 DoF with padding)
         features = {
@@ -141,6 +146,8 @@ class TeleopRecorder:
             self._prompt_for_task()
         
         self.recording = True
+        self.awaiting_confirmation = False
+        self.episode_frame_count = 0
         print(f"Started recording - Task: {self.current_task}")
         return True
     
@@ -150,11 +157,59 @@ class TeleopRecorder:
             return
         
         self.recording = False
+        self.awaiting_confirmation = True
 
-        # Save episode
-        self.dataset.save_episode()
-        self.dataset_changed = True
-        print(f"Episode saved with task: {self.current_task}")
+        print(f"Recording stopped. Episode has {self.episode_frame_count} frames.")
+        print("Press 'y' to confirm and save, or 'n' to discard this episode.")
+
+        # # Save episode
+        # self.dataset.save_episode()
+        # self.dataset_changed = True
+        # print(f"Episode saved with task: {self.current_task}")
+    
+    def confirm_episode(self):
+        """Confirm and save the current episode"""
+        if not self.awaiting_confirmation:
+                return
+            
+        try:
+            # Save episode to dataset
+            self.dataset.save_episode()
+            self.dataset_changed = True
+            self.awaiting_confirmation = False
+            print(f"sEpisode confirmed and saved! Task: {self.current_task}")
+            print(f"Total episodes in dataset: {self.dataset.meta.total_episodes}")
+        except Exception as e:
+            print(f"Error saving episode: {e}")
+            self.discard_episode()
+
+    def discard_episode(self):
+        """Discard the current episode and clear the buffer"""
+        if not self.awaiting_confirmation:
+            return
+        
+        try:
+            # Clear the episode buffer without saving
+            self.dataset.clear_episode_buffer()
+            self.awaiting_confirmation = False
+            self.episode_frame_count = 0
+            print(f"Episode discarded. Buffer cleared.")
+        except Exception as e:
+            print(f"Error clearing buffer: {e}")
+            self.cleanup()
+            # # Fallback: try to reset the buffer manually
+            # try:
+            #     self.dataset.episode_buffer = {
+            #         'size': 0,
+            #         'observation.state': [],
+            #         'observation.image': [],
+            #         'action': []
+            #     }
+            #     self.awaiting_confirmation = False
+            #     self.episode_frame_count = 0
+            #     print("Buffer manually reset.")
+            # except Exception as e2:
+            #     print(f"Failed to reset buffer: {e2}")
     
     def record_frame(self):
         """Record a single frame if recording is active"""
@@ -183,7 +238,7 @@ class TeleopRecorder:
 
         # Add frame to dataset episode buffer
         self.dataset.add_frame(frame_data, task=self.current_task)
-
+        self.episode_frame_count += 1
         self.current_frame = None
     
     def run_teleoperation(self):
@@ -228,6 +283,12 @@ class TeleopRecorder:
                         self.stop_recording()
                     else:
                         self.start_recording()
+                elif key == ord('y') and self.awaiting_confirmation:
+                    # Confirm episode
+                    self.confirm_episode()
+                elif key == ord('n') and self.awaiting_confirmation:
+                    # Discard episode
+                    self.discard_episode()
                 elif key == ord('t') and not self.recording:
                     self.last_key = ord('t')
                     # Prompt for new task (only when not currently recording)
@@ -273,6 +334,9 @@ class TeleopRecorder:
         # Clean up
         if self.recording:
             self.stop_recording()
+        elif self.awaiting_confirmation:
+            # Auto-discard if exiting during confirmation
+            self.discard_episode()
         
         self.cleanup()
         if self.dataset_changed:
@@ -288,20 +352,28 @@ class TeleopRecorder:
         # Add recording indicator
         if self.recording:
             cv2.putText(display_frame, "RECORDING", (10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            cv2.putText(display_frame, f"Frames: {self.dataset.episode_buffer['size']}", (10, 70),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            cv2.putText(display_frame, f"Frames: {self.episode_frame_count}", (10, 70),  # MODIFIED
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        elif self.awaiting_confirmation:                      # NEW block
+            cv2.putText(display_frame, "CONFIRM EPISODE", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+            cv2.putText(display_frame, f"Frames: {self.episode_frame_count}", (10, 70),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            cv2.putText(display_frame, "Press 'y' to save, 'n' to discard", (10, 110),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        
         # Add current task
         if self.current_task:
-            cv2.putText(display_frame, f"Task: {self.current_task}", (10, 100),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            cv2.putText(display_frame, f"Task: {self.current_task}", (10, 140),  # MODIFIED y-position
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         
         # Add servo angle info
         if current_servo_angle != -1:
-            cv2.putText(display_frame, f"Servo: {current_servo_angle} degrees", (10, 130),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            cv2.putText(display_frame, f"Target: {self.current_target_angle} degrees", (10, 150),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            cv2.putText(display_frame, f"Servo: {current_servo_angle} degrees", (10, 170),  # MODIFIED y-position
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            cv2.putText(display_frame, f"Target: {self.current_target_angle} degrees", (10, 190),  # MODIFIED y-position
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         
         return display_frame
     

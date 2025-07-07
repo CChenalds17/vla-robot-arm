@@ -1,4 +1,0 @@
-[submodule "src/lerobot"]
-	path = src/lerobot
-	url = https://github.com/huggingface/lerobot.git
-	branch = main
