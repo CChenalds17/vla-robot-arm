@@ -129,10 +129,12 @@ class SmolVLASRASystem:
                     observation = self.get_observation()
                     action = self.policy.select_action(observation)
 
+                    #! Change for Higher-DOF
                     if self.print_outputs:
                         print(f"VLA Action: {action}")
                     servo_angle = SmolVLASRASystem.action_to_angle(action)
                     try:
+                        #! Change for Higher-DOF
                         self.servo_controller.move_servo(convert_angle_to_arduino(servo_angle))
                     except Exception as e:
                         print(f"Error communicating with Arduino: {e}")
@@ -174,9 +176,11 @@ class SmolVLASRASystem:
     @staticmethod
     def obs_to_smolvla_state(obs):
         """Converts observation to observation Tensor 0-padded for SmolVLA input"""
+        #! Change for higher-DOF
         return torch.tensor([obs, 0, 0, 0, 0, 0]).unsqueeze(0)
     
     @staticmethod
     def action_to_angle(action):
         """Converts SmolVLA output action to 1-DoF servo angle (rounded)"""
+        #! Change for higher-DOF
         return round(action.squeeze(0).tolist()[0])

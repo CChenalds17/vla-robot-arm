@@ -12,6 +12,7 @@ class ServoController:
     """
     Class for Arduino communication to read/write servo angles. Sees angle range [0, +180]
     """
+    #! Change for Higher-DOF: [cmd, arg_1, ..., arg_n]
     def __init__(self, arduino_port, baud_rate, init_angle = 90):
         # Connect to Arduino
         self.ser = serial.Serial(arduino_port, baud_rate, timeout=0.1)
