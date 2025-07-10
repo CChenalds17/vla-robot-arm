@@ -1,4 +1,4 @@
-from sra.servo_controller import ServoController
+from sra.servo_controller import ServoController, NUM_DOFS
 from sra.camera_handler import CameraHandler
 from sra.helpers import convert_angle_to_arduino, convert_angle_to_vla, tensor_to_pil
 
@@ -12,9 +12,6 @@ import time
 
 from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
-
-# Servo constants
-INIT_ANGLE = 0
 
 class SmolVLASRASystem:
     """
@@ -34,7 +31,7 @@ class SmolVLASRASystem:
         self.policy = SmolVLAPolicy.from_pretrained(model_path)
         self.setup_pol_state_dict()
 
-        self.servo_controller = ServoController(arduino_port, baud_rate, convert_angle_to_arduino(INIT_ANGLE))
+        self.servo_controller = ServoController(arduino_port, baud_rate)
         self.camera_handler = CameraHandler(streaming_interface, update_iptables, profile_name, device_ip)
 
         self.current_frame = None
@@ -129,13 +126,11 @@ class SmolVLASRASystem:
                     observation = self.get_observation()
                     action = self.policy.select_action(observation)
 
-                    #! Change for Higher-DOF
                     if self.print_outputs:
                         print(f"VLA Action: {action}")
-                    servo_angle = SmolVLASRASystem.action_to_angle(action)
+                    servo_angles = SmolVLASRASystem.action_to_angles(action)
                     try:
-                        #! Change for Higher-DOF
-                        self.servo_controller.move_servo(convert_angle_to_arduino(servo_angle))
+                        self.servo_controller.move_servo([convert_angle_to_arduino(servo_angle) for servo_angle in servo_angles])
                     except Exception as e:
                         print(f"Error communicating with Arduino: {e}")
                         self.camera_handler.terminate()
@@ -145,8 +140,10 @@ class SmolVLASRASystem:
 
     def get_observation(self):
         """Fetches observation data and formats it for SmolVLA"""
-        obs = convert_angle_to_vla(self.servo_controller.get_status()) # Gets servo angle from Arduino and converts it
-        observation_state = SmolVLASRASystem.obs_to_smolvla_state(obs).to(self.device)
+        angles = self.servo_controller.get_status() # Gets list of servo angles from Arduino
+        # Convert angles to vla
+        angles = [convert_angle_to_vla(angle) for angle in angles]
+        observation_state = SmolVLASRASystem.obs_to_smolvla_state(angles).to(self.device) # Converts to tensor and sends to device
         observation_image = SmolVLASRASystem.img_to_smolvla_tensor(self.current_frame).to(self.device)
         task = self.current_task
 
@@ -174,13 +171,12 @@ class SmolVLASRASystem:
         return undistorted_tensor
 
     @staticmethod
-    def obs_to_smolvla_state(obs):
-        """Converts observation to observation Tensor 0-padded for SmolVLA input"""
-        #! Change for higher-DOF
-        return torch.tensor([obs, 0, 0, 0, 0, 0]).unsqueeze(0)
+    def obs_to_smolvla_state(observations):
+        """Converts observation angles to observation Tensor 0-padded for SmolVLA input"""
+        return torch.tensor(observations + [0] * (6 - NUM_DOFS)).unsqueeze(0)
     
     @staticmethod
-    def action_to_angle(action):
-        """Converts SmolVLA output action to 1-DoF servo angle (rounded)"""
-        #! Change for higher-DOF
-        return round(action.squeeze(0).tolist()[0])
+    def action_to_angles(action):
+        """Converts SmolVLA output action to n-DoF servo angles (rounded)"""
+        angles = action.squeeze(0).tolist()[:NUM_DOFS]
+        return [round(angle) for angle in angles]
