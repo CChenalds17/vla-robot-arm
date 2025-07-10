@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 from pathlib import Path
 import time
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
-from lerobot.common.datasets.utils import build_dataset_frame
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.utils import build_dataset_frame
 from sra.camera_handler import CameraHandler
 from sra.servo_controller import ServoController
 from sra.helpers import convert_angle_to_vla
@@ -162,11 +162,6 @@ class TeleopRecorder:
         print(f"Recording stopped. Episode has {self.episode_frame_count} frames.")
         print("Press 'y' to confirm and save, or 'n' to discard this episode.")
 
-        # # Save episode
-        # self.dataset.save_episode()
-        # self.dataset_changed = True
-        # print(f"Episode saved with task: {self.current_task}")
-    
     def confirm_episode(self):
         """Confirm and save the current episode"""
         if not self.awaiting_confirmation:
@@ -197,19 +192,6 @@ class TeleopRecorder:
         except Exception as e:
             print(f"Error clearing buffer: {e}")
             self.cleanup()
-            # # Fallback: try to reset the buffer manually
-            # try:
-            #     self.dataset.episode_buffer = {
-            #         'size': 0,
-            #         'observation.state': [],
-            #         'observation.image': [],
-            #         'action': []
-            #     }
-            #     self.awaiting_confirmation = False
-            #     self.episode_frame_count = 0
-            #     print("Buffer manually reset.")
-            # except Exception as e2:
-            #     print(f"Failed to reset buffer: {e2}")
     
     def record_frame(self):
         """Record a single frame if recording is active"""
@@ -225,7 +207,7 @@ class TeleopRecorder:
         if current_servo_angle == -1:
             return
         
-        # Convert angles from Arduino range [0, 180] to VLA range [-180, 180]
+        # Convert angles from Arduino range [0, 180] to VLA range [-90, 90]
         servo_angle_vla = convert_angle_to_vla(current_servo_angle)
         target_angle_vla = convert_angle_to_vla(self.current_target_angle)
 

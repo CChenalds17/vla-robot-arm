@@ -10,18 +10,18 @@ import threading
 import queue
 import time
 
-from lerobot.common.policies.smolvla.modeling_smolvla import SmolVLAPolicy
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 # Servo constants
 INIT_ANGLE = 0
 
 class SmolVLASRASystem:
     """
-    System integrating Aria glasses, SmolVLA, and Arduino. Treats angle range as [-180, +180] and **converts every angle before transmission with Arduino**.
+    System integrating Aria glasses, SmolVLA, and Arduino. Treats angle range as [-90, +90] and **converts every angle before transmission with Arduino**.
     """
     def __init__(self, arduino_port, baud_rate, streaming_interface, update_iptables, profile_name, device_ip, control_hz=10.0, \
-                 print_outputs=False, dataset_path="cchenalds17/svla_custom_aria_1dof", model_path="cchenalds17/custom_aria_1dof_test0", device="mps"):
+                 print_outputs=False, dataset_path="cchenalds17/fixed_svla_custom_aria_1dof_test1", model_path="cchenalds17/custom_aria_1dof_test2", device="mps"):
         # Initialize components (parameters supplied by command-line arguments)
         self.print_outputs = print_outputs
 
@@ -132,7 +132,12 @@ class SmolVLASRASystem:
                     if self.print_outputs:
                         print(f"VLA Action: {action}")
                     servo_angle = SmolVLASRASystem.action_to_angle(action)
-                    self.servo_controller.move_servo(convert_angle_to_arduino(servo_angle))
+                    try:
+                        self.servo_controller.move_servo(convert_angle_to_arduino(servo_angle))
+                    except Exception as e:
+                        print(f"Error communicating with Arduino: {e}")
+                        self.camera_handler.terminate()
+                        self.servo_controller.disconnect()
         
         self.camera_handler.terminate()
 
@@ -152,9 +157,6 @@ class SmolVLASRASystem:
         if self.print_outputs:
             print('---------------------------------------------------------')
             print(f"Observation State: {observation_state}")
-            tensor_to_pil(observation_image).show()
-            print(f"Observation Image Top: {observation_image}")
-            print(f"Observation Image Top Shape: {observation_image.shape}")
             print(f"Task: {task}")
             print('---------------------------------------------------------')
 
