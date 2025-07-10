@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--dataset-repo-id", type=str, default="cchenalds17/svla_custom_aria_1dof_test1", help="Dataset repository ID (e.g., 'username/dataset_name')"
+        "--dataset-repo-id", type=str, default="cchenalds17/svla_custom_aria_1dof_test", help="Dataset repository ID (e.g., 'username/dataset_name')"
     )
     parser.add_argument(
         "--dataset-root", type=str, default="./recorded_datasets", help="Root directory for dataset storage"
