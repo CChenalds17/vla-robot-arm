@@ -10,6 +10,11 @@ Clone the repository:
 git clone https://github.com/CChenalds17/sra.git
 ```
 
+Initialize the LeRobot repository as a submodule and update it:
+```bash
+git submodule update --init --recursive
+```
+
 Create a virtual environment with Python 3.10 and activate it, e.g. with [`miniconda`](https://docs.anaconda.com/free/miniconda/index.html):
 
 ```bash
