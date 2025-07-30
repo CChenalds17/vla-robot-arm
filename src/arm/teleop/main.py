@@ -1,5 +1,5 @@
-from sra.teleop.teleop_recorder import TeleopRecorder
-from sra.teleop.cli import parse_args
+from arm.teleop.teleop_recorder import TeleopRecorder
+from arm.teleop.cli import parse_args
 
 def main():
     args = parse_args()

@@ -1,5 +1,5 @@
-from sra.autonomous.cli import parse_args
-from sra.autonomous.smolvla_sra_system import SmolVLASRASystem
+from arm.autonomous.cli import parse_args
+from arm.autonomous.smolvla_sra_system import SmolVLASRASystem
 
 def main():
     args = parse_args()
@@ -7,7 +7,7 @@ def main():
     # TODO: Dynamically select device (mps/cuda/cpu)
 
     system = SmolVLASRASystem(args.arduino_port, args.baud_rate, args.streaming_interface, \
-                              args.update_iptables, args.profile_name, args.device_ip)
+                              args.update_iptables, args.profile_name, args.device_ip, args.dataset_path, args.model_path)
     
     system.run_control_loop()
 

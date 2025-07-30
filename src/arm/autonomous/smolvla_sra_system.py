@@ -1,8 +1,8 @@
-from sra.servo_controller import ServoController, NUM_DOFS
-from sra.camera_handler import CameraHandler
-from sra.helpers import convert_angle_to_arduino, convert_angle_to_vla, tensor_to_pil
+from arm.servo_controller import ServoController, NUM_DOFS
+from arm.camera_handler import CameraHandler
+from arm.helpers import convert_angle_to_arduino, convert_angle_to_vla, tensor_to_pil
 
-from sra.aria_common import ctrl_c_handler
+from arm.aria_common import ctrl_c_handler
 
 import torch
 import cv2
@@ -17,8 +17,8 @@ class SmolVLASRASystem:
     """
     System integrating Aria glasses, SmolVLA, and Arduino. Treats angle range as [-90, +90] and **converts every angle before transmission with Arduino**.
     """
-    def __init__(self, arduino_port, baud_rate, streaming_interface, update_iptables, profile_name, device_ip, control_hz=10.0, \
-                 print_outputs=False, dataset_path="cchenalds17/svla_custom_aria_1dof_point_glasses", model_path="cchenalds17/custom_aria_1dof_point_glasses", device="mps"):
+    def __init__(self, arduino_port, baud_rate, streaming_interface, update_iptables, profile_name, device_ip, dataset_path, \
+                 model_path, control_hz=10.0, print_outputs=False, device="mps"):
         # Initialize components (parameters supplied by command-line arguments)
         self.print_outputs = print_outputs
 
