@@ -40,4 +40,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--device-ip", help="IP address to connect to the device over wifi"
     )
+    parser.add_argument(
+        "--dataset_path", type=str, required=True, help="Huggingface dataset path"
+    )
+    parser.add_argument(
+        "--model_path", type=str, default="lerobot/smolvla_base", help="Huggingface VLA model path"
+    )
     return parser.parse_args()
