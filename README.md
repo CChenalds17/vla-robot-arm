@@ -1,6 +1,6 @@
-# Supernumerary Robotic Arm
-## VLA-Based SRA: Proof of Concept of Vision-Language-Action Model Performance on Supernumerary Robotic Limbs
-In contrast to existing studies on VLAs being limited to statically mounted arms, we introduce a novel application of VLAs on unpredictable, dynamic human bases as a supernumerary arm. This library contains the code for a proof-of-concept of this application. Our custom 1-DOF supernumerary robotic arm uses the [LeRobot library](https://github.com/huggingface/lerobot) for data collection and [SmolVLA](https://huggingface.co/blog/smolvla) as its base model. We use the [Meta Project Aria Gen 1 Glasses](https://www.projectaria.com/) as our vision system to make this setup as unintrusive and human-centric as possible. The arm is controlled by an Arduino Uno, which communicates with the Python script using a custom motor bus and communication protocol. With this proof-of-concept established, we are now moving on to using more robust off-the-shelf hardware to evaluate VLA performance on human-mounted SRAs and on tasks that require human-robot interaction.
+# VLA-Based Custom Robotic Arm
+## Vision-Language-Action Model on Custom Robotic Arm
+This library contains the code for a custom robotic arm setup based on SmolVLA. Our custom 1-DOF robotic arm uses the [LeRobot library](https://github.com/huggingface/lerobot) for data collection and [SmolVLA](https://huggingface.co/blog/smolvla) as its base model. We use the [Meta Project Aria Gen 1 Glasses](https://www.projectaria.com/) as our vision system. The arm is controlled by an Arduino Uno, which communicates with the Python script using a custom motor bus and communication protocol.
 
 ## Installation
 Tested on Python version 3.11.6

@@ -1,8 +1,8 @@
-from sra.servo_controller import ServoController
-from sra.camera_handler import CameraHandler
-from sra.helpers import convert_angle_to_arduino, convert_angle_to_vla, tensor_to_pil
+from arm.servo_controller import ServoController
+from arm.camera_handler import CameraHandler
+from arm.helpers import convert_angle_to_arduino, convert_angle_to_vla, tensor_to_pil
 
-from sra.aria_common import ctrl_c_handler
+from arm.aria_common import ctrl_c_handler
 
 import torch
 import cv2

@@ -1,5 +1,5 @@
-from sra.autonomous.cli import parse_args
-from sra.autonomous.smolvla_sra_system import SmolVLASRASystem
+from arm.autonomous.cli import parse_args
+from arm.autonomous.smolvla_sra_system import SmolVLASRASystem
 
 def main():
     args = parse_args()

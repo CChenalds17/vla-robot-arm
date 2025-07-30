@@ -4,10 +4,10 @@ from pathlib import Path
 import time
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import build_dataset_frame
-from sra.camera_handler import CameraHandler
-from sra.servo_controller import ServoController
-from sra.helpers import convert_angle_to_vla
-from sra.aria_common import ctrl_c_handler
+from arm.camera_handler import CameraHandler
+from arm.servo_controller import ServoController
+from arm.helpers import convert_angle_to_vla
+from arm.aria_common import ctrl_c_handler
 
 BASE_DELTA = 1 # Original per-press step
 ACCELERATION = 7.5 # Degrees per second of hold
