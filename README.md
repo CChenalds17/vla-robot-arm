@@ -48,11 +48,11 @@ huggingface-cli login
 ### Teleop/Recording
 ```bash
 cd src
-python -m sra.teleop.main
+python -m sra.teleop.main --dataset_path=<dataset_path>
 ```
 
 ### Autonomous loop
-```
-$ cd src
-$ python -m sra.autonomous.main
+```bash
+cd src
+python -m sra.autonomous.main --dataset_path=<dataset_path>
 ```
